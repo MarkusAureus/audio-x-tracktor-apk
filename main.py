@@ -1,7 +1,7 @@
 import os
 import json
 import threading
-import subprocess
+import yt_dlp
 from urllib.parse import urlparse
 
 from kivy.app import App
@@ -111,11 +111,11 @@ class MediaCatcherApp(App):
         
         self.main_layout.add_widget(self.audio_options)
         
-        # Video options (hidden by default)
-        self.video_options = BoxLayout(orientation='vertical', size_hint=(1, 0.24), spacing=5)
+        # Video options (hidden by default) - UPRAVENÉ: odstránené titulky
+        self.video_options = BoxLayout(orientation='vertical', size_hint=(1, 0.08), spacing=5)
         
         # Video quality
-        video_quality_layout = BoxLayout(size_hint=(1, 0.33))
+        video_quality_layout = BoxLayout(size_hint=(1, 1))
         video_quality_label = Label(text='Quality:', size_hint=(0.3, 1))
         self.video_quality_spinner = Spinner(
             text='Best',
@@ -126,27 +126,6 @@ class MediaCatcherApp(App):
         video_quality_layout.add_widget(video_quality_label)
         video_quality_layout.add_widget(self.video_quality_spinner)
         self.video_options.add_widget(video_quality_layout)
-        
-        # Subtitles checkbox
-        subtitles_layout = BoxLayout(size_hint=(1, 0.33))
-        self.subtitles_check = CheckBox(size_hint=(0.1, 1))
-        subtitles_label = Label(text='Download subtitles', size_hint=(0.9, 1))
-        subtitles_layout.add_widget(self.subtitles_check)
-        subtitles_layout.add_widget(subtitles_label)
-        self.video_options.add_widget(subtitles_layout)
-        
-        # Subtitle language
-        sub_lang_layout = BoxLayout(size_hint=(1, 0.33))
-        sub_lang_label = Label(text='Language:', size_hint=(0.3, 1))
-        self.sub_lang_spinner = Spinner(
-            text='en',
-            values=('en', 'sk', 'cs', 'de', 'fr', 'es'),
-            size_hint=(0.7, 1),
-            background_color=(0.3, 0.3, 0.4, 1)
-        )
-        sub_lang_layout.add_widget(sub_lang_label)
-        sub_lang_layout.add_widget(self.sub_lang_spinner)
-        self.video_options.add_widget(sub_lang_layout)
         
         # Don't add video options initially
         
@@ -174,6 +153,8 @@ class MediaCatcherApp(App):
             background_color=(0.6, 0.2, 0.2, 1),
             disabled=True
         )
+        # Poznámka: stop_download nebude fungovať na prerušenie už prebiehajúceho sťahovania,
+        # ale zabráni spusteniu ďalšieho v poradí.
         self.stop_button.bind(on_press=self.stop_download)
         
         self.clear_button = Button(
@@ -202,7 +183,7 @@ class MediaCatcherApp(App):
         self.main_layout.add_widget(self.status_label)
         
         # Initialize
-        self.current_process = None
+        self.current_process = None # Už sa nepoužíva pre subprocess
         self.is_downloading = False
         
         return self.main_layout
@@ -213,8 +194,12 @@ class MediaCatcherApp(App):
     
     def get_default_download_dir(self):
         if platform == 'android':
+            # Na Androide je potrebné získať povolenie na zápis
+            # Toto je zjednodušený príklad, reálna aplikácia by mala riešiť
+            # požiadavku na povolenie (request_permissions)
             from android.storage import primary_external_storage_path
-            return os.path.join(primary_external_storage_path(), 'Download')
+            download_dir = os.path.join(primary_external_storage_path(), 'Download')
+            return download_dir
         else:
             return os.path.expanduser('~/Downloads')
     
@@ -295,125 +280,87 @@ class MediaCatcherApp(App):
         thread.start()
     
     def stop_download(self, instance):
-        if self.current_process:
-            self.current_process.terminate()
+        # Táto funkcia už nemôže priamo zastaviť yt-dlp, lebo nebeží ako subprocess.
+        # Namiesto toho nastaví 'is_downloading' na False, čo zabráni sťahovaniu
+        # ďalšej položky v zozname URL adries.
         self.is_downloading = False
         self.download_button.disabled = False
         self.stop_button.disabled = True
-        self.status_label.text = 'Download stopped'
-        self.progress_bar.value = 0
+        self.status_label.text = 'Stopping...'
     
+    # --- PREPÍSANÁ FUNKCIA ---
     def download_thread(self, urls):
         try:
-            import re
-            
             url_list = [url.strip() for url in urls.split('\n') if url.strip()]
-            
+
+            # Funkcia (hook), ktorá bude aktualizovať progress bar a status label
+            def my_hook(d):
+                if not self.is_downloading:
+                    # Ak bol stlačný Stop, vyvolá chybu na prerušenie
+                    raise yt_dlp.utils.DownloadCancelled()
+
+                if d['status'] == 'downloading':
+                    # Odstráneme percentuálny znak a prekonvertujeme na číslo
+                    p_str = d.get('_percent_str', '0.0%').replace('%', '').strip()
+                    try:
+                        p = float(p_str)
+                        # Aktualizujeme UI prvky bezpečne z vlákna pomocou Clock
+                        Clock.schedule_once(lambda dt, prog=p: setattr(self.progress_bar, 'value', prog))
+                        Clock.schedule_once(lambda dt, prog=p: setattr(self.status_label, 'text', f'Downloading... {prog:.1f}%'))
+                    except ValueError:
+                        pass # Ignorujeme, ak sa percentá nedajú prečítať
+                
+                elif d['status'] == 'finished':
+                    Clock.schedule_once(lambda dt: setattr(self.progress_bar, 'value', 100))
+                    Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Download complete!'))
+
             for url in url_list:
                 if not self.is_downloading:
                     break
-                
-                # Prepare yt-dlp command
-                cmd = ['yt-dlp', url, '--newline']
-                
-                # Output path
+
+                # Pripravíme možnosti pre yt-dlp ako slovník
                 output_path = os.path.join(self.output_dir, '%(title)s.%(ext)s')
-                cmd.extend(['-o', output_path])
-                
-                # Mode specific options
+                ydl_opts = {
+                    'outtmpl': output_path,
+                    'progress_hooks': [my_hook],
+                    'noplaylist': not self.playlist_check.active,
+                    'playlist_items': '1' if not self.playlist_check.active else None,
+                    # Pridané pre lepšiu kompatibilitu na Androide
+                    'nocheckcertificate': True, 
+                }
+
+                # Možnosti pre audio
                 if self.mode_spinner.text == 'Audio':
                     audio_format = self.audio_format_spinner.text
-                    cmd.extend(['-x', '--audio-format', audio_format])
-                    
-                    if audio_format in ['mp3', 'aac']:
-                        quality = self.audio_quality_spinner.text
-                        quality_map = {'320K': '0', '192K': '2', '128K': '5', '64K': '9'}
-                        cmd.extend(['--audio-quality', quality_map.get(quality, '2')])
+                    audio_quality = self.audio_quality_spinner.text.replace('K', '')
+                    ydl_opts['format'] = 'bestaudio/best'
+                    ydl_opts['postprocessors'] = [{
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': audio_format,
+                        'preferredquality': audio_quality,
+                    }]
+                # Možnosti pre video - UPRAVENÉ: odstránené titulky
                 else:
-                    # Video mode
-                    cmd.extend(['--merge-output-format', 'mp4'])
-                    
                     quality = self.video_quality_spinner.text
-                    if quality == 'Best':
-                        cmd.extend(['-f', 'bestvideo+bestaudio'])
-                    else:
-                        # Map quality to format codes
-                        quality_map = {
-                            '1080p': '137+140',
-                            '720p': '136+140', 
-                            '480p': '135+140',
-                            '360p': '134+140',
-                            '240p': '133+140'
-                        }
-                        format_code = quality_map.get(quality, 'best')
-                        cmd.extend(['-f', format_code])
+                    format_code = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+                    if quality != 'Best':
+                         height = quality.replace('p','')
+                         format_code = f'bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
                     
-                    # Subtitles
-                    if self.subtitles_check.active:
-                        sub_lang = self.sub_lang_spinner.text
-                        cmd.extend(['--write-auto-sub', '--sub-lang', sub_lang, 
-                                  '--convert-subs', 'srt'])
+                    ydl_opts['format'] = format_code
+                    ydl_opts['merge_output_format'] = 'mp4'
                 
-                # Playlist handling
-                if not self.playlist_check.active:
-                    cmd.extend(['--playlist-items', '1'])
-                
-                # Execute download
-                self.current_process = subprocess.Popen(
-                    cmd, 
-                    stdout=subprocess.PIPE, 
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    bufsize=1
-                )
-                
-                # Parse output for progress
-                for line in self.current_process.stdout:
-                    if not self.is_downloading:
-                        self.current_process.terminate()
-                        break
-                    
-                    # Extract progress percentage
-                    match = re.search(r'\[download\]\s+(\d+\.?\d*)%', line)
-                    if match:
-                        progress = float(match.group(1))
-                        Clock.schedule_once(
-                            lambda dt, p=progress: setattr(self.progress_bar, 'value', p)
-                        )
-                        Clock.schedule_once(
-                            lambda dt, p=progress: setattr(
-                                self.status_label, 'text', f'Downloading... {p:.1f}%'
-                            )
-                        )
-                    
-                    # Check for completion
-                    if '[download] 100%' in line or 'has already been downloaded' in line:
-                        Clock.schedule_once(
-                            lambda dt: setattr(self.progress_bar, 'value', 100)
-                        )
-                
-                # Wait for process to complete
-                self.current_process.wait()
-                
-                if self.current_process.returncode == 0:
-                    Clock.schedule_once(
-                        lambda dt: setattr(self.status_label, 'text', 'Download complete!')
-                    )
-                else:
-                    stderr = self.current_process.stderr.read()
-                    Clock.schedule_once(
-                        lambda dt, err=stderr: self.show_error(f'Download failed: {err[:100]}')
-                    )
-                    
-        except FileNotFoundError:
-            Clock.schedule_once(
-                lambda dt: self.show_error('yt-dlp not found. Please install it first.')
-            )
+                # Spustenie sťahovania priamo cez knižnicu
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+
+        except yt_dlp.utils.DownloadCancelled:
+            self.status_label.text = 'Download stopped'
         except Exception as e:
-            Clock.schedule_once(lambda dt, err=str(e): self.show_error(err))
+            Clock.schedule_once(lambda dt, err=str(e): self.show_error(f"Error: {err}"))
         finally:
             Clock.schedule_once(lambda dt: self.download_finished())
-    
+
     def download_finished(self, *args):
         self.is_downloading = False
         self.download_button.disabled = False
@@ -423,7 +370,7 @@ class MediaCatcherApp(App):
         popup = Popup(
             title='Error',
             content=Label(text=message),
-            size_hint=(0.8, 0.3)
+            size_hint=(0.8, 0.4) # Zväčšil som popup pre lepšiu čitateľnosť chýb
         )
         popup.open()
 
