@@ -2,7 +2,7 @@ import os
 import sys
 import threading
 import yt_dlp
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qsl
 
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
@@ -20,15 +20,16 @@ from kivy.core.window import Window
 from kivy.graphics import Color, Rectangle
 from kivy.uix.scrollview import ScrollView
 from kivy.storage.jsonstore import JsonStore
-from kivy.uix.image import Image # <-- NOVÝ IMPORT
+from kivy.uix.image import Image
 
 if platform not in ['android', 'ios']:
     Window.size = (400, 700)
 
-class MyLogger:
-    def debug(self, msg): pass
-    def warning(self, msg): pass
-    def error(self, msg): pass
+class DummyStream:
+    def write(self, *args, **kwargs):
+        pass
+    def flush(self, *args, **kwargs):
+        pass
 
 class AudioXtractorApp(App):
 
@@ -67,10 +68,9 @@ class AudioXtractorApp(App):
             self.bg_color = Color(0,0,0,1)
             self.rect = Rectangle(size=self.main_layout.size, pos=self.main_layout.pos)
         
-        # --- ZMENA: Použitie obrázku ako loga namiesto textu ---
         logo_image = Image(
             source='logo.png',
-            size_hint=(1, 0.15), # Mierne zväčšený priestor pre logo
+            size_hint=(1, 0.15),
             allow_stretch=True,
             keep_ratio=True
         )
@@ -134,13 +134,10 @@ class AudioXtractorApp(App):
         self.store.put('theme', name=text)
 
     def apply_theme(self, theme_name):
-        theme = self.themes[theme_name]
+        theme = self.themes.get(theme_name, self.themes['Dark Knight'])
         self.bg_color.rgba = theme['bg']
         
-        # --- ZMENA: Odstránený self.title_label z prefarbovania ---
-        widgets_to_theme = [
-            self.playlist_label, self.theme_label, self.status_label
-        ]
+        widgets_to_theme = [self.playlist_label, self.theme_label, self.status_label]
         for widget in widgets_to_theme:
             widget.color = theme['text']
 
@@ -208,39 +205,76 @@ class AudioXtractorApp(App):
         self.is_downloading = False
     
     def download_thread(self, urls):
-        # Táto funkcia ostáva rovnaká ako v poslednej funkčnej audio verzii
+        original_stdout = sys.stdout
+        original_stderr = sys.stderr
+        sys.stdout = DummyStream()
+        sys.stderr = DummyStream()
+        
         try:
             url_list = [url.strip() for url in urls.split('\n') if url.strip()]
-            def my_hook(d):
-                if not self.is_downloading: raise yt_dlp.utils.DownloadCancelled()
-                if d['status'] == 'downloading':
-                    p_str = d.get('_percent_str', '0.0%').replace('%', '').strip()
-                    try:
-                        p = float(p_str)
-                        Clock.schedule_once(lambda dt, prog=p: setattr(self.progress_bar, 'value', prog))
-                        Clock.schedule_once(lambda dt, prog=p: setattr(self.status_label, 'text', f'Downloading... {prog:.1f}%'))
-                    except ValueError: pass
-                elif d['status'] == 'finished':
-                    Clock.schedule_once(lambda dt: setattr(self.progress_bar, 'value', 100))
-            for url in url_list:
+            total_urls = len(url_list)
+
+            for i, url in enumerate(url_list, 1):
                 if not self.is_downloading: break
+
+                # --- FINÁLNA OPRAVA POČÍTADLA ---
+                def my_hook(d):
+                    if not self.is_downloading: raise yt_dlp.utils.DownloadCancelled()
+                    if d['status'] == 'downloading':
+                        # Zistíme, či sťahujeme playlist a podľa toho zostavíme text
+                        playlist_index = d.get('playlist_index')
+                        playlist_count = d.get('playlist_count')
+                        
+                        if playlist_index and playlist_count:
+                            status_prefix = f'Downloading playlist ({playlist_index}/{playlist_count})... '
+                        else:
+                            # Pre samostatné linky použijeme počítadlo z vonkajšieho cyklu
+                            status_prefix = f'Downloading ({i}/{total_urls})... '
+
+                        p_str = d.get('_percent_str', '0.0%').replace('%', '').strip()
+                        try:
+                            p = float(p_str)
+                            final_status_text = f"{status_prefix}{p:.1f}%"
+                            Clock.schedule_once(lambda dt, prog=p: setattr(self.progress_bar, 'value', prog))
+                            Clock.schedule_once(lambda dt, text=final_status_text: setattr(self.status_label, 'text', text))
+                        except ValueError: pass
+                    elif d['status'] == 'finished':
+                        Clock.schedule_once(lambda dt: setattr(self.progress_bar, 'value', 100))
+
                 output_path = os.path.join(self.output_dir, '%(title)s.%(ext)s')
-                ydl_opts = {'outtmpl': output_path, 'progress_hooks': [my_hook], 'noplaylist': not self.playlist_check.active, 'playlist_items': '1' if not self.playlist_check.active else None, 'format': 'bestaudio/best'}
+                
+                # Vraciame sa k jednoduchej a stabilnej logike pre playlisty
+                ydl_opts = {
+                    'outtmpl': output_path,
+                    'progress_hooks': [my_hook],
+                    'noplaylist': not self.playlist_check.active,
+                    'playlist_items': '1' if not self.playlist_check.active else None,
+                    'format': 'bestaudio[ext=m4a]/bestaudio/best',
+                    'ignoreerrors': True,
+                }
+                
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
+
             if self.is_downloading:
-                Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Download complete!'))
+                Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'All downloads complete!'))
+        
         except yt_dlp.utils.DownloadCancelled:
             Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Download stopped'))
         except Exception as e:
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr
             Clock.schedule_once(lambda dt, err=str(e): self.show_error(f"Error: {err}"))
         finally:
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr
             Clock.schedule_once(lambda dt: self.download_finished())
 
     def download_finished(self, *args):
         if self.is_downloading:
              if 'Error' not in self.status_label.text:
                 self.status_label.text = 'Finished'
+        
         self.is_downloading = False
         self.download_button.disabled = False
         self.stop_button.disabled = True
