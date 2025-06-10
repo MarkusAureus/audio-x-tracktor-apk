@@ -20,7 +20,7 @@ from kivy.core.window import Window
 from kivy.graphics import Color, Rectangle
 from kivy.uix.scrollview import ScrollView
 from kivy.storage.jsonstore import JsonStore
-
+from kivy.uix.image import Image # <-- NOVÝ IMPORT
 
 if platform not in ['android', 'ios']:
     Window.size = (400, 700)
@@ -33,7 +33,6 @@ class MyLogger:
 class AudioXtractorApp(App):
 
     def build(self):
-        # --- NOVÉ: Definícia tém ---
         self.themes = {
             'Dark Knight': {
                 'bg': [0.1, 0.1, 0.2, 1], 'text': [1, 1, 1, 1],
@@ -58,9 +57,8 @@ class AudioXtractorApp(App):
         }
         self.store = JsonStore('settings.json')
         
-        # --- ZMENA: Názov aplikácie ---
         self.title = 'Audio X-tracktor'
-        self.icon = 'media-catcher.png' # Ikonu si môžete nechať alebo zmeniť
+        self.icon = 'icon.png'
         
         self.main_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         self.main_layout.bind(size=self._update_background)
@@ -69,16 +67,20 @@ class AudioXtractorApp(App):
             self.bg_color = Color(0,0,0,1)
             self.rect = Rectangle(size=self.main_layout.size, pos=self.main_layout.pos)
         
-        # --- ZMENA: Názov v UI ---
-        self.title_label = Label(text='Audio X-tracktor', size_hint=(1, 0.1), font_size='24sp', bold=True)
-        self.main_layout.add_widget(self.title_label)
+        # --- ZMENA: Použitie obrázku ako loga namiesto textu ---
+        logo_image = Image(
+            source='logo.png',
+            size_hint=(1, 0.15), # Mierne zväčšený priestor pre logo
+            allow_stretch=True,
+            keep_ratio=True
+        )
+        self.main_layout.add_widget(logo_image)
         
         self.url_input = TextInput(
-            hint_text='Enter URL(s) here...', multiline=True, size_hint=(1, 0.3)
+            hint_text='Enter URL(s) here...', multiline=True, size_hint=(1, 0.3),
+            background_color=(0.2, 0.2, 0.3, 1), foreground_color=(1, 1, 1, 1)
         )
         self.main_layout.add_widget(self.url_input)
-        
-        # --- ODSTRÁNENÉ: Voľba Audio/Video ---
         
         playlist_layout = BoxLayout(size_hint=(1, 0.08))
         self.playlist_check = CheckBox(size_hint=(0.1, 1), color=[1,1,1,1])
@@ -87,7 +89,6 @@ class AudioXtractorApp(App):
         playlist_layout.add_widget(self.playlist_label)
         self.main_layout.add_widget(playlist_layout)
         
-        # --- NOVÉ: Voľba témy ---
         theme_layout = BoxLayout(size_hint=(1, 0.08), spacing=10)
         self.theme_label = Label(text='Theme:', size_hint=(0.3, 1))
         self.theme_spinner = Spinner(
@@ -124,7 +125,7 @@ class AudioXtractorApp(App):
         self.main_layout.add_widget(self.status_label)
         
         self.is_downloading = False
-        self.apply_theme(self.theme_spinner.text) # Aplikujeme tému pri štarte
+        self.apply_theme(self.theme_spinner.text)
         
         return self.main_layout
     
@@ -136,9 +137,9 @@ class AudioXtractorApp(App):
         theme = self.themes[theme_name]
         self.bg_color.rgba = theme['bg']
         
-        # Nastavenie farieb pre všetky relevantné widgety
+        # --- ZMENA: Odstránený self.title_label z prefarbovania ---
         widgets_to_theme = [
-            self.title_label, self.playlist_label, self.theme_label, self.status_label
+            self.playlist_label, self.theme_label, self.status_label
         ]
         for widget in widgets_to_theme:
             widget.color = theme['text']
@@ -148,7 +149,7 @@ class AudioXtractorApp(App):
 
         self.theme_spinner.background_color = theme['button_bg']
         self.folder_button.background_color = theme['button_bg']
-        self.stop_button.background_color = get_color_from_hex('#D93939') # Stop je vždy červený
+        self.stop_button.background_color = get_color_from_hex('#D93939')
         self.clear_button.background_color = theme['button_bg']
         self.download_button.background_color = theme['primary_button_bg']
 
@@ -207,12 +208,11 @@ class AudioXtractorApp(App):
         self.is_downloading = False
     
     def download_thread(self, urls):
+        # Táto funkcia ostáva rovnaká ako v poslednej funkčnej audio verzii
         try:
             url_list = [url.strip() for url in urls.split('\n') if url.strip()]
-
             def my_hook(d):
-                if not self.is_downloading:
-                    raise yt_dlp.utils.DownloadCancelled()
+                if not self.is_downloading: raise yt_dlp.utils.DownloadCancelled()
                 if d['status'] == 'downloading':
                     p_str = d.get('_percent_str', '0.0%').replace('%', '').strip()
                     try:
@@ -222,26 +222,14 @@ class AudioXtractorApp(App):
                     except ValueError: pass
                 elif d['status'] == 'finished':
                     Clock.schedule_once(lambda dt: setattr(self.progress_bar, 'value', 100))
-
             for url in url_list:
-                if not self.is_downloading:
-                    break
-
+                if not self.is_downloading: break
                 output_path = os.path.join(self.output_dir, '%(title)s.%(ext)s')
-                ydl_opts = {
-                    'outtmpl': output_path,
-                    'progress_hooks': [my_hook],
-                    'noplaylist': not self.playlist_check.active,
-                    'playlist_items': '1' if not self.playlist_check.active else None,
-                    'format': 'bestaudio/best', # Stále sťahuje len najlepšie audio
-                }
-                
+                ydl_opts = {'outtmpl': output_path, 'progress_hooks': [my_hook], 'noplaylist': not self.playlist_check.active, 'playlist_items': '1' if not self.playlist_check.active else None, 'format': 'bestaudio/best'}
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
-
             if self.is_downloading:
                 Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Download complete!'))
-
         except yt_dlp.utils.DownloadCancelled:
             Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Download stopped'))
         except Exception as e:
@@ -253,7 +241,6 @@ class AudioXtractorApp(App):
         if self.is_downloading:
              if 'Error' not in self.status_label.text:
                 self.status_label.text = 'Finished'
-        
         self.is_downloading = False
         self.download_button.disabled = False
         self.stop_button.disabled = True
