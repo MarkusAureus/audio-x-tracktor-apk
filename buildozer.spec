@@ -16,13 +16,13 @@ source.dir = .
 source.main_py = main.py
 
 # (optional) Filename to be used for the icon of the application.
-icon.filename = %(source.dir)s/icon-512x512.png
+icon.filename = %(source.dir)s/icon.png
 
 # (optional) Presplash of the application.
 presplash.filename = %(source.dir)s/presplash_screen.png
 
 # (required) Version of your application
-version = 3.0
+version = 4.0
 
 # (required) List of requirements
 requirements = python3,kivy,yt-dlp,pyjnius,android
