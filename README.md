@@ -1,7 +1,7 @@
 ![logo](https://github.com/user-attachments/assets/567413e6-5faa-43cd-baf7-f60a27034d8d)
 **Audio X-tracktor v1.0 - First Stable Release!**
 
-This is the initial public release of Audio X-tracktor, a simple and stylish application for downloading audio from over 1000 supported platforms and websites.
+Audio X-tracktor is a powerful Android application built on Python (kivy) and on top of yt-dlp that makes downloading online audio (best available quality) content simple and enjoyable.  Audio X-tracktor delivers professional results with just a few clicks.
 
 ### Key Features:
 - **High-Quality Audio:** Downloads the best available audio stream directly.
@@ -19,7 +19,7 @@ Audio X-tracktor is designed for downloading content you have permission to save
 Thank you for trying out the app!
 Created with love.
 
-Python source code: https://github.com/MarkusAureus/audio-x-tracktor-apk/releases/tag/v1.0
+Link for download Android app (apk file): https://github.com/MarkusAureus/audio-x-tracktor-apk/releases/tag/v1.0
 
 
 ![screenshot_1](https://github.com/user-attachments/assets/196de70a-50ea-4a53-bedd-057c26a5ef0f)
