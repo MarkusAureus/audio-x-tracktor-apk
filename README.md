@@ -21,8 +21,8 @@ Created with love.
 
 Python source code: https://github.com/MarkusAureus/audio-x-tracktor-apk/releases/tag/v1.0
 
-## 📱 Screenshots
-![](screenshot/screenshot_1.jpg)
-![](screenshot/screenshot_2.jpg)
-![](screenshot/screenshot_3.jpg)
-![](screenshot/screenshot_4.jpg)
+
+![screenshot_1](https://github.com/user-attachments/assets/196de70a-50ea-4a53-bedd-057c26a5ef0f)
+![screenshot_2](https://github.com/user-attachments/assets/c5a58ed0-9d98-4309-803d-bc5fdec65059)
+![screenshot_3](https://github.com/user-attachments/assets/f009b9e1-9f8d-496f-aaf4-f213c3e95f07)
+![screenshot_4](https://github.com/user-attachments/assets/b114e92c-df25-4fc8-8026-573229808710)
