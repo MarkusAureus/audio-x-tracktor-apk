@@ -14,6 +14,7 @@ Audio X-tracktor is a powerful Android application built on Python (kivy) and on
 This project is licensed under the GPL-3.0+ License - see the [LICENSE](LICENSE) file for details.
 
 ⚠️ Important Notice
+
 Audio X-tracktor is designed for downloading content you have permission to save. Always respect copyright laws and platform terms of service. Use responsibly for educational purposes, personal use, and content you own or have explicit permission to download.
 
 Thank you for trying out the app!
