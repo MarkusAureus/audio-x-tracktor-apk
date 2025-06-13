@@ -1,10 +1,3 @@
-# -----------------------------------------------------------------------------
-# -- KIVY GUI FOR YT-DLP AUDIO DOWNLOADER                                    --
-# -- Author: [Your Name/Nickname Here]                                       --
-# -- Date: [Date of Creation]                                                --
-# -- Version: 1.0                                                            --
-# -----------------------------------------------------------------------------
-
 # --- Standard Library Imports ---
 import os
 import sys
